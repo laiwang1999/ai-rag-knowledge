@@ -80,7 +80,7 @@ public class RAGTest {
         messages.add(ragMessage);
         ChatResponse chatResponse = ollamaChatClient.call(new Prompt(messages, OllamaOptions.create().withModel("deepseek-r1:1.5b")));
         log.info("测试结果: {}", JSON.toJSONString(chatResponse));
-
-
     }
+
+
 }
