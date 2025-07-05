@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 对话助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50 h-screen overflow-hidden">
+<div class="flex h-full">
+    <!-- 左侧聊天列表 -->
+    <div class="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <!-- 新建聊天按钮 -->
+        <div class="p-4">
+            <button id="newChatBtn" class="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                <i class="fas fa-plus"></i>
+                新建聊天
+            </button>
+        </div>
+
+        <!-- 聊天列表 -->
+        <div class="flex-1 overflow-y-auto">
+            <div id="chatList" class="px-2 py-2 space-y-1">
+                <!-- 聊天项将动态插入这里 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧对话区域 -->
+    <div class="flex-1 flex flex-col">
+        <!-- 顶部栏 -->
+        <div class="bg-white border-b border-gray-200 px-6 py-4">
+            <div class="flex items-center justify-between">
+                <h2 id="chatTitle" class="text-lg font-semibold text-gray-800">新对话</h2>
+                <div class="flex items-center gap-3 text-gray-500">
+                    <i class="fas fa-robot"></i>
+                    <span>deepseek-r1</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 消息区域 -->
+        <div class="flex-1 overflow-y-auto bg-gray-50">
+            <div id="messageContainer" class="max-w-4xl mx-auto py-6 px-4 space-y-6">
+                <!-- 消息将动态插入这里 -->
+            </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="bg-white border-t border-gray-200 px-6 py-4">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex gap-3">
+                    <div class="flex-1 relative">
+                            <textarea
+                                    id="messageInput"
+                                    placeholder="输入一条消息..."
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    rows="1"
+                            ></textarea>
+                    </div>
+                    <button
+                            id="sendBtn"
+                            class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 右键菜单 -->
+<div id="contextMenu" class="hidden fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+    <button id="renameBtn" class="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2">
+        <i class="fas fa-edit text-gray-500"></i>
+        重命名
+    </button>
+    <button id="deleteBtn" class="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2">
+        <i class="fas fa-trash text-red-500"></i>
+        删除
+    </button>
+</div>
+
+<script>
+    // 全局变量
+    let currentChatId = null;
+    let chats = {};
+    let eventSource = null;
+
+    // DOM 元素
+    const chatList = document.getElementById('chatList');
+    const messageContainer = document.getElementById('messageContainer');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const chatTitle = document.getElementById('chatTitle');
+    const contextMenu = document.getElementById('contextMenu');
+    const renameBtn = document.getElementById('renameBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
+
+    // 初始化
+    function init() {
+        // 创建第一个聊天
+        createNewChat();
+
+        // 绑定事件
+        newChatBtn.addEventListener('click', createNewChat);
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keydown', handleInputKeydown);
+        document.addEventListener('click', hideContextMenu);
+        renameBtn.addEventListener('click', renameChat);
+        deleteBtn.addEventListener('click', deleteChat);
+
+        // 自动调整输入框高度
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+    }
+
+    // 创建新聊天
+    function createNewChat() {
+        const chatId = Date.now().toString();
+        const chatName = `新对话 ${Object.keys(chats).length + 1}`;
+
+        chats[chatId] = {
+            id: chatId,
+            name: chatName,
+            messages: []
+        };
+
+        renderChatList();
+        selectChat(chatId);
+    }
+
+    // 渲染聊天列表
+    function renderChatList() {
+        chatList.innerHTML = '';
+
+        Object.values(chats).forEach(chat => {
+            const chatItem = document.createElement('div');
+            chatItem.className = `px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                chat.id === currentChatId ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'
+            }`;
+            chatItem.dataset.chatId = chat.id;
+            chatItem.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="truncate">${chat.name}</span>
+                        <i class="fas fa-chevron-right text-xs opacity-50"></i>
+                    </div>
+                `;
+
+            chatItem.addEventListener('click', () => selectChat(chat.id));
+            chatItem.addEventListener('contextmenu', (e) => showContextMenu(e, chat.id));
+
+            chatList.appendChild(chatItem);
+        });
+    }
+
+    // 选择聊天
+    function selectChat(chatId) {
+        currentChatId = chatId;
+        const chat = chats[chatId];
+        chatTitle.textContent = chat.name;
+        renderMessages();
+        renderChatList();
+    }
+
+    // 渲染消息
+    function renderMessages() {
+        const chat = chats[currentChatId];
+        messageContainer.innerHTML = '';
+
+        chat.messages.forEach(msg => {
+            addMessageToUI(msg.content, msg.role);
+        });
+    }
+
+    // 添加消息到UI
+    function addMessageToUI(content, role) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `flex gap-3 ${role === 'user' ? 'justify-end' : ''}`;
+
+        if (role === 'user') {
+            messageDiv.innerHTML = `
+                    <div class="max-w-2xl">
+                        <div class="bg-blue-600 text-white px-4 py-2 rounded-lg rounded-br-none">
+                            ${content}
+                        </div>
+                    </div>
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white">
+                        <i class="fas fa-user text-sm"></i>
+                    </div>
+                `;
+        } else {
+            messageDiv.innerHTML = `
+                    <div class="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white">
+                        <i class="fas fa-robot text-sm"></i>
+                    </div>
+                    <div class="max-w-2xl">
+                        <div class="bg-white border border-gray-200 px-4 py-2 rounded-lg rounded-bl-none">
+                            <div class="message-content">${content}</div>
+                        </div>
+                    </div>
+                `;
+        }
+
+        messageContainer.appendChild(messageDiv);
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+
+        return messageDiv;
+    }
+
+    // 发送消息
+    async function sendMessage() {
+        const message = messageInput.value.trim();
+        if (!message || sendBtn.disabled) return;
+
+        // 添加用户消息
+        const chat = chats[currentChatId];
+        chat.messages.push({ role: 'user', content: message });
+        addMessageToUI(message, 'user');
+
+        // 清空输入框
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+
+        // 禁用发送按钮
+        sendBtn.disabled = true;
+
+        // 添加AI消息占位符
+        const aiMessage = { role: 'assistant', content: '' };
+        chat.messages.push(aiMessage);
+        const aiMessageDiv = addMessageToUI('', 'assistant');
+        const contentDiv = aiMessageDiv.querySelector('.message-content');
+
+        // 显示加载状态
+        contentDiv.innerHTML = '<i class="fas fa-spinner fa-spin text-gray-400"></i>';
+
+        // 调用流式API
+        const apiUrl = `http://localhost:8090/api/v1/ollama/generate_stream?model=deepseek-r1:1.5b&message=${encodeURIComponent(message)}`;
+
+        try {
+            eventSource = new EventSource(apiUrl);
+            let fullContent = '';
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.result && data.result.output) {
+                        const content = data.result.output.content || '';
+                        fullContent += content;
+                        contentDiv.textContent = fullContent;
+
+                        // 检查是否结束
+                        if (data.result.metadata && data.result.metadata.finishReason!==null) {
+                            eventSource.close();
+                            aiMessage.content = fullContent;
+                            sendBtn.disabled = false;
+                        }
+                    }
+                } catch (err) {
+                    console.error('解析响应错误:', err);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('EventSource错误:', error);
+                eventSource.close();
+                contentDiv.innerHTML = '<span class="text-red-500">连接错误，请重试</span>';
+                sendBtn.disabled = false;
+            };
+
+        } catch (error) {
+            console.error('发送消息错误:', error);
+            contentDiv.innerHTML = '<span class="text-red-500">发送失败，请重试</span>';
+            sendBtn.disabled = false;
+        }
+    }
+
+    // 处理输入框快捷键
+    function handleInputKeydown(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    }
+
+    // 显示右键菜单
+    function showContextMenu(e, chatId) {
+        e.preventDefault();
+        currentContextChatId = chatId;
+
+        contextMenu.style.left = e.pageX + 'px';
+        contextMenu.style.top = e.pageY + 'px';
+        contextMenu.classList.remove('hidden');
+    }
+
+    // 隐藏右键菜单
+    function hideContextMenu() {
+        contextMenu.classList.add('hidden');
+    }
+
+    // 重命名聊天
+    function renameChat() {
+        const chat = chats[currentContextChatId];
+        const newName = prompt('请输入新名称:', chat.name);
+
+        if (newName && newName.trim()) {
+            chat.name = newName.trim();
+            renderChatList();
+            if (currentContextChatId === currentChatId) {
+                chatTitle.textContent = chat.name;
+            }
+        }
+    }
+
+    // 删除聊天
+    function deleteChat() {
+        if (Object.keys(chats).length === 1) {
+            alert('至少需要保留一个聊天');
+            return;
+        }
+
+        if (confirm('确定要删除这个聊天吗？')) {
+            delete chats[currentContextChatId];
+
+            if (currentContextChatId === currentChatId) {
+                const firstChatId = Object.keys(chats)[0];
+                selectChat(firstChatId);
+            }
+
+            renderChatList();
+        }
+    }
+
+    // 启动应用
+    init();
+</script>
+</body>
+</html>
