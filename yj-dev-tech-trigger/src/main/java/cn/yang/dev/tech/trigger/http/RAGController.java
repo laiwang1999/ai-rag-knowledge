@@ -49,7 +49,7 @@ public class RAGController implements IRAGService {
 
     @Override
     @RequestMapping("/upload_file")
-    public Response<String> uploadFile(@RequestParam String ragTag,@RequestParam List<MultipartFile> files) {
+    public Response<String> uploadFile(@RequestParam String ragTag, @RequestParam List<MultipartFile> files) {
         log.info("上传知识库开始 ragTag:{} ", ragTag);
         for (MultipartFile file : files) {
             TikaDocumentReader documentReader = new TikaDocumentReader(file.getResource());
